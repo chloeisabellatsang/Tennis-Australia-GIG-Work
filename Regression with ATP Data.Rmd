@@ -1,0 +1,184 @@
+---
+title: "Regression for ATP Data"
+author: "Chloe Isabella Tsang"
+date: "8/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(rvest)
+library(base)
+library(ggplot2)
+library(stringr)
+library(xml2)
+library(ResourceSelection)
+load("/Users/chloeisabellatsang/Downloads/atp.RData")
+```
+
+## Wide to Long Data
+Given ATP data in R, initially in wide shape. Intention was to make 2 data frames before combining the two with rbind function. First data frame contains data for winners (Player), and the second for the losers (PlayerOpponent). To change to long shape, I selected the variables I needed for each dataframe:
+
+```{r wide to long}
+df1v1<-atp%>% select(Player, ID, BP, BPOpponent, BPOF, BPOFOpponent, TPW, TPWOpponent) 
+df2v2<- atp%>%select(Player=PlayerOpponent,ID=IDOpponent, BP=BPOpponent,BPOpponent=BP, BPOF=BPOFOpponent, BPOFOpponent=BPOF, TPW=TPWOpponent, TPWOpponent=TPW)
+```
+df1v1:dataframe1_version1,
+df2v2:dataframe2_version2
+
+I had to assign the losers' data to the same variables as the winner for the two data frames to be able to merge properly under the same column names. To show a winner code alongside the data:
+```{r winner code}
+df1v1$win<-TRUE
+df2v2$win<-FALSE
+```
+Next rbind the two data frames now that they are in my intended format. 
+```{r rbinding the dataframes, eval=FALSE, include=TRUE}
+rbind(df1v1,df2v2, deparse.level=0)
+```
+Assign 'atplong' so I can pull up the data through the object. It'll look like this:
+```{r}
+atplong<-rbind(df1v1,df2v2, deparse.level=0)
+head(atplong)
+```
+You can't see the data for the losers(win=FALSE), because there is so much data, so many rows, they get omitted by the program.
+
+## Attempting to assign different variables to the pythagorean win% model
+Using break points (BP) as a measuring variable in the p. win% model:
+
+```{r trying BP, echo=TRUE}
+Plotdata<- atplong %>% 
+group_by(Player) %>%
+dplyr::summarise(
+BPWon=sum(BP),
+BPLost=sum(BPOpponent),
+Win=mean(win)
+)
+
+Plotdata%>%ggplot(aes(y=log((Win)/(1-Win)),x=log(BPWon/BPLost)))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```
+
+There are a whole bunch of points in the corners of the plot, maybe due to players having zero break points. For example, in the data below, player 9 - Abdaal Haider seems to have zero breakpoints. These points might be corresponding to those players.
+```{r abdaal haider, echo=FALSE}
+Plotdata
+```
+
+Here, I'm now using total points won (TPW) as the measuring variable:
+```{r trying with TPW, echo=TRUE}
+plotdata<- atplong %>%
+group_by(Player) %>%
+dplyr::summarise(
+TotalptsWon=sum(TPW),
+TotalptsLost=sum(TPWOpponent),
+Win=mean(win)
+)
+
+plotdata%>%ggplot(aes(y=log((Win)/(1-Win)),x=log(TotalptsWon/TotalptsLost)))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```
+
+
+## Dealing with the issue of '1-time' players with less stable stats 
+
+The plots above show quite a lot of points alligned on the bottom and top of the graphs, resembling data from players who have played only one match and loss and/or are the less 'regular' players on the tour with a less stable show of statistics. To solve this issue, I filtered the data to show only the players that played a certain amount of matches.
+
+These are the match numbers (n) for each player.
+```{r getting the players match #s, echo=TRUE}
+atplong %>% count(Player)
+```
+
+These are the individual n values taken out:
+```{r}
+matchcount<- atplong %>% count(Player)
+matchcount %>% select(n)
+```
+
+Now, we filter the atplong data to include players who have played at least 30 matches or more (n>=30)
+```{r echo=TRUE, include=TRUE, eval = TRUE}
+matchcount<- matchcount %>% filter(n,n>=30)
+count<-matchcount$Player
+atplong<-atplong %>% filter(Player%in%count)
+n_distinct(atplong$Player)
+```
+We get something like this:
+```{r echo=FALSE}
+head(atplong)
+```
+
+## Using the modified 'atplong' data for improved models
+Modified model for using BP as measuring variable:
+```{r, echo=TRUE }
+Plotdata<- atplong %>% 
+group_by(Player) %>%
+dplyr::summarise(
+BPWon=sum(BP),
+BPLost=sum(BPOpponent),
+Win=mean(win)
+)
+
+Plotdata%>%ggplot(aes(y=log((Win)/(1-Win)),x=log(BPWon/BPLost)))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```
+
+Modified model for using TPW as measuring variable:
+```{r, echo=TRUE }
+plotdata<- atplong %>%
+group_by(Player) %>%
+dplyr::summarise(
+TotalptsWon=sum(TPW),
+TotalptsLost=sum(TPWOpponent),
+Win=mean(win)
+)
+
+plotdata%>%ggplot(aes(y=log((Win)/(1-Win)),x=log(TotalptsWon/TotalptsLost)))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```
+
+## Creating glm for the 2 models (BP and TPW)
+TPW glm:
+```{r}
+glm(log((Win)/(1-Win))~log(TotalptsWon/TotalptsLost)-1,data=plotdata,family=gaussian)
+```
+The alpha for the pythagorean expectation model using this measuring variable (TPW) is 6.969 based on the results of the glm function. 
+
+BP glm:
+```{r}
+glm(log((Win)/(1-Win))~log(BPWon/BPLost)-1,data=Plotdata,family=gaussian)
+```
+The alpha for the pythaorean expectation model using this measuring variable (BP) is 1.714 based on the results of the glm function. 
+
+Comparing variance of the two variables against each other:
+```{r, echo=TRUE}
+vardata<-atplong %>%
+group_by(Player) %>%
+dplyr::summarise(
+BPWon=sum(BP),
+BPLost=sum(BPOpponent),
+TotalptsWon=sum(TPW),
+TotalptsLost=sum(TPWOpponent)
+)
+
+vardata %>% ggplot(aes(y=log(TotalptsWon/TotalptsLost),x=log(BPWon/BPLost)))+geom_point(size=2,col="#1792d0")+geom_smooth(method="lm") + scale_y_continuous(lim = c(-1, 1)) +scale_x_continuous(lim = c(-1, 1))
+```
+This shows me a very strong relationship between the 2 variables, and the scale of one compared to the other also explains the alpha value. The BP scoring variable having more margin in the scale lets the alpha be smaller - with such a large scale, you don't need to inflate it any further (which is what the alpha does the larger it is). The TPW scoring variable has less margin in the scale, and so that allows for the alpha value to be larger, hence the difference between alpha=1.714 for BP and 6.969 for TPW. 
+
+## Determining good/strong indicators of a win
+Looking for variables that might evidently signal a strong/dominant win in tennis. Between the two variables measured above, I'm trying to determine which is better. I obtain the summaries of the models to get a better idea of the fits:
+
+This is for TPW:
+```{r, echo=TRUE}
+TPWmodel<-glm(log((Win)/(1-Win))~log(TotalptsWon/TotalptsLost)-1,data=plotdata,family=gaussian)
+summary(TPWmodel)
+```
+
+This is for BP:
+```{r, echo=TRUE, eval=TRUE}
+BPmodel<-glm(log((Win)/(1-Win))~log(BPWon/BPLost)-1,data=Plotdata,family=gaussian)
+summary(BPmodel)
+```
+
+The important values to take into consideration when comparing the models are the Residual deviance and the AIC - the smaller AIC is the better model to take, and the smaller the Residual deviance the better the model explains the data. Hence, I should be looking for the smaller of the AIC and Residual deviance from the two model summaries. 
+
+The TPW has the smaller of AIC and Residual deviance (AIC: -1144.1<-1014.1, Resid.dev: 33.168<36.555), so this tells me using the TPW scoring variable is the better model in comparison to using the BP scoring variable. 
+

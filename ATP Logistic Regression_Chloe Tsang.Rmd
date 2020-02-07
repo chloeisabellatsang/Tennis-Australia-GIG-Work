@@ -1,0 +1,242 @@
+---
+title: "ATP Logistic Regression"
+author: "Chloe Isabella Tsang"
+date: "8/22/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(base)
+library(rvest)
+library(xml2)
+library(tidyr)
+library(ResourceSelection)
+load("~/Desktop/atp.RData 2")
+```
+
+## Gathering Data
+Data given needs a win variable to be created for use in our later models:
+```{r, echo==TRUE}
+lr1<-atp%>%select(MatchID, Player, BP, BPOF, W1S, W1SOF)
+lr1$win<-TRUE
+lr2<-atp%>%select(MatchID, Player=PlayerOpponent, BP=BPOpponent, BPOF=BPOFOpponent,W1S=W1SOpponent, W1SOF=W1SOFOpponent)
+lr2$win<-FALSE
+```
+Then we can rbind the two dataframes:
+```{r, echo=TRUE}
+lratp<-rbind(lr1,lr2,deparse.level=0)
+```
+Next, I organize the data by shortening it and removing duplicates that result from the overlap of winning player's stats and losing players' stats.
+
+* You can do a table with 'lratp' without any extra code - see below:
+
+```{r, echo=TRUE}
+table(lratp$win)
+``` 
+We can see from the table function that our data set still has 7,000-some matches still listed. We'll split it into half by randomly choosing half of the matches that are already there to keep and use for further analysis. 
+
+The 'keep' object is what is randomly choosing between TRUE & FALSE which are representing Win and Lose. 
+
+```{r, eval=TRUE,echo=TRUE}
+lratp <- lratp %>% group_by(MatchID) %>% dplyr::mutate(keep = sample(rep(c(T, F), c(1, n()- 1))))
+
+lratp <- lratp %>% filter(keep) # Here is where we keep 1 player per match
+
+table(lratp$win)
+```
+Now we can see from the table function the data has been cut down to 30,0000-some matches which is half of the population we first started with. 
+
+I can work with this data now that it has been formatted the way I want it.
+
+## Models
+To see the relationship between my 2 chosen x variables, I plot BP against WS1.
+
+* I have to create a new data frame or adjust the earlier one because I need to incoorporate BPopponent and W1SOpponent but its currently under BP and W1S in the lratp data.frame ... 
+
+* This is how I wanted to do the ggplot, just the data is not registering from the set I gave it (lratp):
+
+* So the analysis we are doing will be at the level of the match. We are interested in how match variables are related to the match outcome. So we don't need to do any further summarising. The Pythagorean was different because we were looking at how the scores over a long period of matches was related to the win percentage in those matches. 
+
+```{r eval=FALSE, include=FALSE}
+compare1<-lratp %>%
+group_by(Player) %>%
+dplyr::summarise(
+BPWon=sum(BP),
+BPLost=sum(BPOpponent),
+W1SWon=sum(W1S),
+W1Lost=sum(W1SOpponent)
+)
+
+atp %>% ggplot(aes(y=log(BPWon/BPLost)),x=log(W1SWon/W1SLost))+geom_point(size=2,col="#1792d0")
+
+```
+
+* Let's do some plots of the match-level variables by wins. Here is an example of boxplots by win result for some possible explanatory variables of interest. 
+
+```{r descriptive-plots, echo=TRUE, eval=TRUE}
+BPboxplot<-lratp %>%
+  ggplot(aes(y = BP, x = win)) +
+  geom_boxplot()
+
+W1Sboxplot<-lratp %>%
+  ggplot(aes(y = W1S / W1SOF, x = win)) +
+  geom_boxplot()
+```
+Boxplots show the shape of distribution, central value, and variability. They give you a good idea of how the data is spread out. The key parts of the boxplot is the 5 number summary - minimum, Q1, median, Q3, maximum.
+
+```{r 5 number summary, echo=TRUE}
+BPboxplot
+W1Sboxplot
+```
+Creating the logistic model:
+```{r echo=TRUE}
+glm(win~BP+I(W1S/W1SOF),data=lratp,family=binomial)
+glmlog<-glm(win~BP+I(W1S/W1SOF),data=lratp,family=binomial)
+```
+To create a summary of the logistic model:
+```{r echo=TRUE}
+summary(glmlog)
+```
+From the summary and the coefficients given from the glm, it is shown that the coefficient for BP is 0.89091, W1S is 0.01931. The intercept for the model is -3.06819 as shown too. 
+
+Writing out the model in terms of its coefficients and variables: E(log(p/1-p)) = ax_1+bx_2+...+cx_n+B
+
+Rewritten with variables and known coefficients: log odds(win) = 1.203(BP)+21.950(W1S/W1SOF)-18.657
+
+* Note: exponentiating the coefficient multiplied by the number of variable units results in the increase/decrease of log odds (∆log_odds). E.g. (exponentiating the BP x-variable)
+```{r}
+exp(0.89091)
+```
+So 2.43747 is the difference in log odds for an increase of 1 BP point. For an increase of 3 BP points,
+```{r}
+exp(0.89091*3)
+```
+the difference in log odds would be 14.47944. 
+
+## Finding a log odd difference for players w/ certain match stats
+Chose some players with stats I thought would be good for calculating what I want to show:
+
+Player 1: Constant Lestienne (Loser of his match) - BP: 1 of 5, W1S: 28 of 52, W1S/W1SOF=28/52
+
+Player 2: Jacopo Beretini (Winner of his match) - BP:5 of 13, W1S: 22 of 26, W1S/W1SOF=22/26
+
+```{r, eval=TRUE}
+logodds<-function(x,y){
+(1.203*x)+(21.95*y)-18.657  
+}
+```
+
+```{r logodds trial2, eval=TRUE}
+logodds(1,28/52)
+logodds(5,22/26)
+```
+I calculated log odds for:
+
+Player 1: win = 1.203(1)+21.95(28/52)-18.657 = -5.634769
+
+Player 2: win = 1.203(5)+21.95(22/26)-18.657 = 5.931077
+
+Therefore, log odd difference for the two players is: 5.931077-(-5.634769) = 11.56585
+
+## Judging importance of x variables among each other, and determining effects of a,b,c coefficients in log odds model
+
+My initial thought: For our particular example, the larger coefficient for an x-variable, the higher its importancae in relation to the y-variable E(log(p/(1-p)).
+
+So I played around with the values of the x variables to determine the effects of the a,b,c coefficients, knowing the nature of the x-variables here (W1S are a lot more than BP because easier to obtain and more common, whereas BP is harder to obtain in comparison to W1S)
+
+Testings: 
+```{r}
+logodds(5,20/60)
+logodds(5,50/60)
+logodds(2,20/60)
+logodds(2,50/60)
+```
+1. When BP is 'high' on its own scale, W1S 'low' on its own scale (Variable-W1S:1.77256), (Variable-W1S/W1SOF:-5.325333)
+2. When BP is 'high', W1S 'high' (Variable-W1S:2.35186), (Variable-W1S/W1SOF:5.649667)
+3. When BP is 'low', W1S 'low' (Variable-W1S:0.90017), (Variable-W1S/W1SOF:-8.934333)
+4. When BP is 'low', W1S 'high' (Variable-W1S:0.32087), (Variable-W1S/W1SOF:2.040667)
+
+Notes from using W1S:
+From this testing, I think it doesn't matter what we do to the smaller coefficient,the win odds seem to be more strongly influenced by the larger coefficient, which in this case is that of BP (0.89091).
+
+- Inputting max. value for the x variable of the larger coefficient (BP) gives stronger win odds 
+
+- Inputtting min. value for the x variable of the larger coefficient gives weaker win odds
+
+^ all despite what I do to the second x variable. 
+
+The larger the scale difference of a x-variable, the less importance it has amongst the rest of the x-variables.
+
+## Notes from changing x_2 variable to W1S/W1SOF:
+I get very different log odds when I used the variable of W1S/W1SOF, but changing this seems to make the W1S the dominant variable in relation to the outcome of the log odds; whenever the W1S was set as low on its own scale out of 60 (the average W1SOF), the log odds come out as negative (-5.32 and -8.93 were what resulted when using BP high and low, but W1S low for both). 
+
+However, my note that the larger coefficient would be the more important coefficient still seems to stand in this situation; changing the x_2 variable to W1S/W1SOF makes its coefficient a larger. But considering the scale of the two variables and its relationship with the size of the coefficient, perahps this tells me that the scale of the W1S/W1SOF ratio is a lot smaller, hence why the coefficient is so much larger. 
+
+Looking at which is more preferrable:
+
+```{r}
+glm(win~BP+W1S,data=lratp,family=binomial)
+glmlog2<-glm(win~BP+W1S,data=lratp,family=binomial)
+```
+
+```{r}
+summary(glmlog2)
+```
+
+The AIC for using W1S: 66416, and for using W1S/W1SOF: 40386
+Residual deviance for W1S: 66408, for using W1S/W1SOF: 40380
+
+The better model is supposed to be the one with a smaller AIC and residual deviance, and that model would be glmlog (the one using variable W1S/W1SOF), in comparision to glmlog2 (using varaible W1S only). So it's more preferable to use W1S/W1SOF. 
+
+## Using Scale function 
+
+First we will look at the difference in scale for BP and W1S/W1SOF. We will do this by making a long dataset of both of those stats.
+
+```{r}
+lratp_long <- lratp %>%
+    dplyr::mutate(
+      W1Sp = W1S/W1SOF
+    ) %>%
+  select(BP, W1Sp) %>% # select only the variables being plotted
+  gather("stat", "value", BP, W1Sp)
+
+lratp_long %>%
+  ggplot(aes(x = value, fill = stat)) +
+  geom_density()
+
+
+lratp_long %>%
+  group_by(stat) %>%
+  dplyr::mutate(
+    value = as.numeric(scale(value))
+  ) %>%
+  ggplot(aes(x = value, fill = stat)) +
+  geom_density()
+```
+
+Next we rescale the variables and refit the logistic model.
+
+```{r}
+glmlog2<-glm(win~I(scale(BP))+I(scale(W1S/W1SOF)),data=lratp,family=binomial)
+summary(glmlog2)
+```
+
+
+## Predict function?
+
+I ran the predict function:
+```{r predict}
+newplayers <- data.frame(
+  BP = c(0, 1),
+  W1S = c(20, 35),
+  W1SOF = c(50, 50)
+)
+
+predictlog <-predict(glmlog2, newdata = newplayers, type = "response")
+predictlog
+```
+
+

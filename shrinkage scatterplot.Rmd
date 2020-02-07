@@ -1,0 +1,94 @@
+---
+title: "playerservewon scatterplot (shrinkage_)"
+author: "Chloe Isabella Tsang"
+date: "8/29/2019"
+output: html_document
+---
+
+```{r setup, include = FALSE, message = FALSE, eval=TRUE}
+options(htmltools.dir.version = FALSE)
+
+library(deuce)
+library(dplyr)
+library(tidyr)
+library(ggthemes)
+library(ggplot2)
+library(scales)
+library(htmlTable)
+library(stringr)
+library(lubridate)
+load("~/Desktop/atp.RData 2")
+```
+
+## Prep w Data
+
+```{r, eval=TRUE, echo=FALSE}
+data(atp_matches)
+
+tail(atp_matches %>%
+    filter(tourney_level == "Grand Slams") %>%
+    select(tourney_name, surface,  winner_name, 
+           loser_name, w_svpt, w_1stWon, w_2ndWon))
+```
+
+```{r, echo = TRUE, eval=TRUE}
+slams_2017 <- atp_matches %>%
+    filter(year == 2017, tourney_level == "Grand Slams") %>%
+    select(tourney_name, surface, 
+           winner_name, w_svpt, w_1stWon, w_2ndWon,
+           loser_name, l_svpt, l_1stWon, l_2ndWon) %>%
+    dplyr::mutate(
+      w_servewon = w_1stWon + w_2ndWon,
+      l_servewon = l_1stWon + l_2ndWon
+    )
+
+winner <- loser <- slams_2017
+
+names(winner) <- sub("winner|w_", "player", names(winner))
+names(loser) <- sub("loser|l_", "player", names(loser))
+
+names(loser) <- sub("winner|w_", "opponent", names(loser))
+names(winner) <- sub("loser|l_", "opponent", names(winner))
+
+slams_2017 <- rbind(winner, loser)
+```
+
+## Setting Dataframe for Scatterplot
+
+```{r pressure, echo=TRUE, eval=TRUE}
+psw<-slams_2017 %>% group_by(player_name)%>% dplyr::summarise(
+serve=mean(playerservewon),
+n=n())
+
+matchcount <-slams_2017 %>% count(player_name)
+matchcount2<- matchcount %>% filter(n>=5) 
+matchcount2$number<-TRUE
+
+
+matchcount<-matchcount %>% filter(n<5)
+matchcount$number<-FALSE
+
+
+matchcounts<-left_join(matchcount2,matchcount) 
+matchcounts<-matchcounts %>% group_by(number=TRUE)
+
+
+scatterdata2<-inner_join(psw,matchcounts)
+
+scatterdata2
+
+```
+
+Make the scatterplot:
+```{r, echo=TRUE}
+scatterdata2%>%
+ggplot(aes(y=n,x=`mean(playerservewon)`))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```
+
+```{r, include=T}
+
+psw%>%
+ggplot(aes(y=n,x=serve))+geom_point(size=2,col="#1792d0") +
+geom_smooth(method = "lm")
+```

@@ -1,0 +1,96 @@
+---
+title: "Shrinkage (part 4)"
+author: "Chloe Isabella Tsang"
+date: "8/28/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(deuce)
+library(dplyr)
+library(tidyr)
+library(ggthemes)
+library(ggplot2)
+library(scales)
+library(htmlTable)
+library(stringr)
+library(lubridate)
+library(lme4)
+```
+
+## Learning Hierarchies
+Hierarchies matter because 'grouped' observations tend to correlate, but standard models treat observations as independent - need special models to accound for dependence in hierarchial data. 
+
+## Looking at explample w Service Data
+
+Good service model: can help set outcome expectation of a player's serve, determine if player palyed or worse than expectation, identitfy factors that influence serve performance.
+
+Loading stats organized by match winner and loser:
+```{r, echo=TRUE, eval=TRUE}
+data(atp_matches) 
+tail(atp_matches %>%
+filter(tourney_level == "Grand Slams") %>%
+select(tourney_name, surface, winner_name, loser_name, w_svpt, w_1stWon, w_2ndWon))
+```
+
+Prepare men's service outcomes for grand slams in 2017:
+```{r prep (1)}
+slams_2017 <- atp_matches %>%
+    filter(year == 2017, tourney_level == "Grand Slams") %>%
+    select(tourney_name, surface, 
+           winner_name, w_svpt, w_1stWon, w_2ndWon,
+           loser_name, l_svpt, l_1stWon, l_2ndWon) %>%
+    dplyr::mutate(
+      w_servewon = w_1stWon + w_2ndWon,
+      l_servewon = l_1stWon + l_2ndWon
+    )
+
+winner <- loser <- slams_2017
+names(winner) <- sub("winner|w_", "player", names(winner))
+names(loser) <- sub("loser|l_", "player", names(loser))
+names(loser) <- sub("winner|w_", "opponent", names(loser))
+names(winner) <- sub("loser|l_", "opponent", names(winner))
+slams_2017 <- rbind(winner, loser)
+
+
+slams_2017 %>%
+  group_by(player_name) %>%
+  dplyr::summarise(
+    matches = n()
+  ) %>%
+  ggplot(aes(x = player_name, y = matches)) + 
+  geom_bar(stat = "identity", fill = "#e5952c") + 
+  coord_flip() + 
+  theme_hc() + 
+  scale_y_continuous("Matches") + 
+  scale_x_discrete("")
+```
+
+*Given data above, need to consider player average serve ability, opponent's average return ability, and surface.  
+
+*Look if there are any hierarchies? 
+Yes, there are because there are different matches and service points across the players.  
+
+Fitting hierarchial model has 2 approaches - Likelihood-based, and Bayesian. 
+
+Use the lme4 packages for fitting hierarchial models for exponenetial family distributions. Here, is a Likelihood based binomial logistic model for serve win proportion:
+```{r binomial logistic model, echo=TRUE}
+fit <- glmer(
+  cbind(playerservewon, playersvpt - playerservewon) ~ 
+    I(surface == "Grass") +
+  I(surface == "Clay") +
+    (1 | player_name) +
+    (1 | opponent_name),
+  data=slams_2017, family="binomial"
+)
+fit
+```
+Notes:
+- the (1 | group) is normal random effects for a 'group' variable. 
+- use binomial as default for logit link - (family="binomial" is different from family="gaussian")
+
+We can get a summary of the model with the summary function:
+```{r summary, eval=TRUE, echo=TRUE}
+summary(fit)
+```
+
